@@ -49,8 +49,8 @@ server <- function(input, output) {
         top10 <- latestData() %>% ungroup() %>% top_n(10, TotalCases)
         ggplot(top10, aes(x=reorder(Area, TotalCases), y=TotalCases))  + geom_col() +
             xlab("Area") +
-            coord_flip() +
-            ggtitle("Top 10 Areas By Total Case Count")
+            ylab("Total Cases") +
+            coord_flip()
     })
     
     output$map <- renderLeaflet({
@@ -59,7 +59,7 @@ server <- function(input, output) {
         
         leaflet(mappedLatestData) %>%
             addTiles() %>%
-            addCircles(lng = ~Longitude, lat = ~Latitude, weight = 10, radius = ~TotalCases * 10, popup = ~Area) %>%
+            addCircles(lng = ~Longitude, lat = ~Latitude, weight = 1, radius = ~TotalCases * 10, popup = ~paste(Area, ":", TotalCases)) %>%
             setView(lng = -2.89479, lat = 54.093409, zoom = 6)
     })
 }
