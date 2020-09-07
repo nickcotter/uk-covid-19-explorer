@@ -88,7 +88,7 @@ server <- function(input, output) {
     })
     
     output$areaCases <- renderPlot({
-        ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess")
+        ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess") + xlab("Date") + ylab("New Cases")
     })
     
     output$areaR <- renderPlot({
@@ -98,8 +98,9 @@ server <- function(input, output) {
             r <- effectiveR()
             plottableR <- r[0:(length(r)-1)]
             
-            plot(plottableR, type="l", ylab="Effective R", xlab="Day")
-            abline(h=1)
+            df <- data.frame(date=as.Date(names(plottableR)), r=plottableR)
+            
+            ggplot(df) + aes(x=date, y=r) + geom_line() + geom_hline(yintercept = 1, col="red") + xlab("Date") + ylab("Effective R")
             
         }, error=function(err) {
             print(err)
