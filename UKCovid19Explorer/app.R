@@ -26,7 +26,7 @@ rm(raw_data)
 lowerTierData <- preProcessedData %>%
     filter(type == 'ltla')
 
-areaNames <- unique(lowerTierData$area)
+areaNames <- sort(unique(lowerTierData$area))
 
 meanGenerationTime <- generation.time("gamma", c(5, 1.9))
 
@@ -40,11 +40,18 @@ ui <- fluidPage(
         
         # Sidebar with a slider input
         sidebarPanel(
-            selectInput("lowerTierAreaName", "Area", areaNames)
+            selectInput("lowerTierAreaName", "Area", areaNames),
+            
+            div(icon("arrow-up"), style="display:none"),
+            
+            fluidRow(align="center",
+                     helpText("Latest R"),
+                     h2(htmlOutput("latestR") %>% withSpinner(color="#0dc5c1", type=4))),
         ),
         
         mainPanel(
-            plotOutput("areaCases"), plotOutput("areaR")
+            plotOutput("areaCases") %>% withSpinner(color="#0dc5c1", type=4), 
+            plotOutput("areaR") %>% withSpinner(color="#0dc5c1", type=4)
         )
         
         #mainPanel(
@@ -62,7 +69,6 @@ ui <- fluidPage(
 #    )
 )
 
-# Define server logic required to draw a histogram
 server <- function(input, output) {
     
     localData <- reactive({
@@ -70,23 +76,71 @@ server <- function(input, output) {
             filter(area==input$lowerTierAreaName)
     })
         
+    effectiveR <- reactive({
+        
+        c <- localData() %>%
+            mutate(avg=rollmean(cases, 7, fill=NA, align="right")) %>%
+            filter(!is.na(avg))
+        
+        epid <- structure(c$avg, names=as.character(c$date))
+        r <- estimate.R(epid=epid, end=max(c$date), GT=meanGenerationTime, methods=c("TD"), nsim=1)
+        r$estimates$TD$R
+    })
+    
     output$areaCases <- renderPlot({
         ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess")
     })
     
     output$areaR <- renderPlot({
         
-        cases <- localData()
-        
         tryCatch({
-            r <- estimate.R(epid=cases$cases, GT=meanGenerationTime, methods=c("TD"), nsim=1)
-            plot(r$estimates$TD$R, type="l", ylab="Effective R", xlab="Day")
+            
+            r <- effectiveR()
+            plottableR <- r[0:(length(r)-1)]
+            
+            plot(plottableR, type="l", ylab="Effective R", xlab="Day")
             abline(h=1)
             
         }, error=function(err) {
             print(err)
         })
         
+    })
+    
+    output$latestR <- renderText({
+        
+        tryCatch({
+            
+            e <- effectiveR()
+            
+            latestR <- e[length(e)-1]
+            
+            col <- "black"
+            if(latestR > 1) {
+                col <- "red"
+            } else if(latestR < 1) {
+                col <- "green"
+            }
+            
+            latestRoundedR <- round(latestR, digits=2)
+            
+            codedR <- paste("<font color='", col, "'>", latestRoundedR, "</font>")
+            
+            if(length(e > 2)) {
+                penultimateR <- e[length(e)-2]
+                if(penultimateR < latestR) {
+                    paste(codedR, "<i class='fas fa-arrow-up'></i>")
+                } else if(penultimateR > latestR) {
+                    paste(codedR, "<i class='fas fa-arrow-down'></i>")
+                } else {
+                    codedR
+                }
+            } else {
+                codedR
+            }
+        }, error=function(e) {
+            "N/A"
+        })
     })
     
     #output$map <- renderLeaflet({
