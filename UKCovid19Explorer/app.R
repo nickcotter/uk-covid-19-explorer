@@ -22,25 +22,25 @@ preProcessedData <- raw_data %>%
     dplyr::select(area, type, code, date, cases)
 rm(raw_data)
 
-# lower tier local authority data
-lowerTierData <- preProcessedData %>%
-    filter(type == 'ltla')
-
-areaNames <- sort(unique(lowerTierData$area))
+#area types
+areaTypes <- unique(preProcessedData$type)
 
 meanGenerationTime <- generation.time("gamma", c(5, 1.9))
 
-# Define UI for application that draws a histogram
 ui <- fluidPage(
     
-    # Application title
     titlePanel("UK COVID-19 Explorer"),
     
     sidebarLayout(
         
-        # Sidebar with a slider input
         sidebarPanel(
-            selectInput("lowerTierAreaName", "Area", areaNames),
+            
+            selectInput("areaType", "Area Type", c("Lower-Tier Local Authority" = "ltla",
+                                                   "Upper-Tier Local Authority" = "utla",
+                                                   "Region" = "region",
+                                                   "Nation" = "nation")),
+            
+            htmlOutput("areaSelector"),
             
             div(icon("arrow-up"), style="display:none"),
             
@@ -72,8 +72,9 @@ ui <- fluidPage(
 server <- function(input, output) {
     
     localData <- reactive({
-        lowerTierData %>%
-            filter(area==input$lowerTierAreaName)
+        preProcessedData %>%
+            filter(type == input$areaType) %>%
+            filter(area==input$areaName)
     })
         
     effectiveR <- reactive({
@@ -85,6 +86,15 @@ server <- function(input, output) {
         epid <- structure(c$avg, names=as.character(c$date))
         r <- estimate.R(epid=epid, end=max(c$date), GT=meanGenerationTime, methods=c("TD"), nsim=1)
         r$estimates$TD$R
+    })
+    
+    output$areaSelector <- renderUI({
+        
+        a <- preProcessedData %>%
+            filter(type == input$areaType) %>%
+            dplyr::select(area)
+        
+        selectInput("areaName", "Area", sort(unique(a$area)))
     })
     
     output$areaCases <- renderPlot({
