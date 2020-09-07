@@ -20,12 +20,15 @@ preProcessedData <- raw_data %>%
     mutate(cases = `Daily lab-confirmed cases`) %>%
     arrange(date) %>%
     dplyr::select(area, type, code, date, cases)
+rm(raw_data)
 
 # lower tier local authority data
 lowerTierData <- preProcessedData %>%
     filter(type == 'ltla')
 
 areaNames <- unique(lowerTierData$area)
+
+meanGenerationTime <- generation.time("gamma", c(5, 1.9))
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -41,7 +44,7 @@ ui <- fluidPage(
         ),
         
         mainPanel(
-            plotOutput("areaCases") 
+            plotOutput("areaCases"), plotOutput("areaR")
         )
         
         #mainPanel(
@@ -66,9 +69,24 @@ server <- function(input, output) {
         lowerTierData %>%
             filter(area==input$lowerTierAreaName)
     })
-    
+        
     output$areaCases <- renderPlot({
         ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess")
+    })
+    
+    output$areaR <- renderPlot({
+        
+        cases <- localData()
+        
+        tryCatch({
+            r <- estimate.R(epid=cases$cases, GT=meanGenerationTime, methods=c("TD"), nsim=1)
+            plot(r$estimates$TD$R, type="l", ylab="Effective R", xlab="Day")
+            abline(h=1)
+            
+        }, error=function(err) {
+            print(err)
+        })
+        
     })
     
     #output$map <- renderLeaflet({
