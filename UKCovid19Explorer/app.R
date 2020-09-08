@@ -2,6 +2,7 @@ library(shiny)
 library(tidyverse)
 library(leaflet)
 library(shinycssloaders)
+library(shinydashboard)
 library(readr)
 library(lubridate)
 library(R0)
@@ -18,6 +19,7 @@ preProcessedData <- raw_data %>%
     mutate(type = `Area type`) %>%
     mutate(date = ymd(`Specimen date`)) %>%
     mutate(cases = `Daily lab-confirmed cases`) %>%
+    filter(date < today()) %>%
     arrange(date) %>%
     dplyr::select(area, type, code, date, cases)
 rm(raw_data)
@@ -25,54 +27,73 @@ rm(raw_data)
 #area types
 areaTypes <- unique(preProcessedData$type)
 
+# location data
+englandNIData <- read.csv("https://extropy-datascience-public.s3-eu-west-1.amazonaws.com/data/ons/local-authorities/Local_Authority_Districts_(April_2019)_Boundaries_UK_BFE.csv") %>%
+    mutate(code = LAD19CD) %>%
+    mutate(longitude = LONG) %>%
+    mutate(latitude = LAT) %>%
+    dplyr::select(c(code, longitude, latitude))
+
+walesData <- read.csv("https://extropy-datascience-public.s3-eu-west-1.amazonaws.com/data/ons/local-authorities/Wales_Postcodes-120520.csv") %>%
+    mutate(code=Primary.Care.Trust.Code) %>%
+    mutate(longitude=Longitude) %>%
+    mutate(latitude=Latitude) %>%
+    dplyr::select(c(code, longitude, longitude))
+
+combinedGeoData <- bind_rows(englandNIData, walesData)
+
+geoCodedData <- preProcessedData %>%
+    left_join(combinedGeoData)
+
+rm(englandNIData)
+rm(walesData)
+rm(combinedGeoData)
+
+
 meanGenerationTime <- generation.time("gamma", c(5, 1.9))
 
-ui <- fluidPage(
+ui <- dashboardPage(
     
-    titlePanel("UK COVID-19 Explorer"),
+    dashboardHeader(title = "UK COVID-19 Explorer"),
     
-    sidebarLayout(
+    dashboardSidebar(
+        selectInput("areaType", "Area Type", c("Lower-Tier Local Authority" = "ltla",
+                                               "Upper-Tier Local Authority" = "utla",
+                                               "Region" = "region",
+                                               "Nation" = "nation")),
         
-        sidebarPanel(
-            
-            selectInput("areaType", "Area Type", c("Lower-Tier Local Authority" = "ltla",
-                                                   "Upper-Tier Local Authority" = "utla",
-                                                   "Region" = "region",
-                                                   "Nation" = "nation")),
-            
-            htmlOutput("areaSelector"),
-            
-            div(icon("arrow-up"), style="display:none"),
-            
-            fluidRow(align="center",
-                     helpText("Latest R"),
-                     h2(htmlOutput("latestR") %>% withSpinner(color="#0dc5c1", type=4))),
-        ),
+        htmlOutput("areaSelector"),
         
-        mainPanel(
-            plotOutput("areaCases") %>% withSpinner(color="#0dc5c1", type=4), 
-            plotOutput("areaR") %>% withSpinner(color="#0dc5c1", type=4)
-        )
+        div(icon("arrow-up"), style="display:none"),
         
-        #mainPanel(
-        #    tabsetPanel(type="tabs",
-#                        tabPanel("Area", plotOutput("areaCases")))    
- #       )
-        
+        fluidRow(align="center",
+                 helpText("Latest R"),
+                 h2(htmlOutput("latestR") %>% withSpinner(color="#0dc5c1", type=4)))
     ),
     
-
+    dashboardBody(
+        tabsetPanel(id = "tabSet",
+            tabPanel("Area",value = "areaTab",
+                             plotOutput("areaCases") %>% withSpinner(color="#0dc5c1", type=4), 
+                             plotOutput("areaR") %>% withSpinner(color="#0dc5c1", type=4)),
+        
+            
+            tabPanel("7 Day Map", leafletOutput("map", height = 800) %>% withSpinner(color="#0dc5c1", type=4))
+        ),
+        
+    )
     
-#    tabsetPanel(type = "tabs",
-#                tabPanel("Top 10", plotOutput("top10") %>% withSpinner(color="#0dc5c1", type=4))
-##                tabPanel("Map", leafletOutput("map", height = 800) %>% withSpinner(color="#0dc5c1", type=4)),
-#    )
 )
 
-server <- function(input, output) {
+server <- function(input, output, session) {
+    
+    observeEvent(input$areaName, {
+        updateTabsetPanel(session, "tabSet",
+                          selected = "areaTab")
+    })
     
     localData <- reactive({
-        preProcessedData %>%
+        geoCodedData %>%
             filter(type == input$areaType) %>%
             filter(area==input$areaName)
     })
@@ -90,7 +111,7 @@ server <- function(input, output) {
     
     output$areaSelector <- renderUI({
         
-        a <- preProcessedData %>%
+        a <- geoCodedData %>%
             filter(type == input$areaType) %>%
             dplyr::select(area)
         
@@ -154,15 +175,24 @@ server <- function(input, output) {
         })
     })
     
-    #output$map <- renderLeaflet({
-    #    mappedLatestData <- latestData() %>%
-    #        left_join(combinedGeoData)
-    #    
-    #    leaflet(mappedLatestData) %>%
-    #        addTiles() %>%
-    #        addCircles(lng = ~Longitude, lat = ~Latitude, weight = 1, radius = ~TotalCases * 10, popup = ~paste(Area, ":", TotalCases)) %>%
-    #        setView(lng = -2.89479, lat = 54.093409, zoom = 6)
-    #})
+    output$map <- renderLeaflet({
+        
+        data <- geoCodedData %>%
+            filter(!is.na(latitude)) %>%
+            filter(!is.na(longitude)) %>%
+            filter(type=='ltla') %>%
+            filter(date > today() - days(7)) %>%
+            group_by(area, latitude, longitude) %>%  
+            summarise(last7Days = sum(cases)) %>%
+            filter(last7Days > 0)
+        
+        largest <- max(data$last7Days)
+        
+        leaflet(data, options = leafletOptions(preferCanvas = TRUE)) %>%
+            addTiles() %>%
+            addCircleMarkers(lng = ~longitude, lat = ~latitude, radius =  ~100*last7Days/largest, popup = ~paste(area, ":", last7Days), clusterOptions = markerClusterOptions(maxClusterRadius=100)) %>%
+            setView(lng = -2.89479, lat = 54.093409, zoom = 6)
+    })
 }
 
 # Run the application 
