@@ -104,9 +104,16 @@ server <- function(input, output, session) {
             mutate(avg=rollmean(cases, 7, fill=NA, align="right")) %>%
             filter(!is.na(avg))
         
+        #l <- loess(cases~as.numeric(date), localData())
+        #p <- predict(l)
+        
         epid <- structure(c$avg, names=as.character(c$date))
-        r <- estimate.R(epid=epid, end=max(c$date), GT=meanGenerationTime, methods=c("TD"), nsim=1)
-        r$estimates$TD$R
+        est <- estimate.R(epid=epid, begin=min(c$date), end=max(c$date), GT=meanGenerationTime, methods=c("TD"), nsim=1)
+        r <- est$estimates$TD$R
+        plottableR <- r[0:(length(r)-1)]
+        data.frame(date=as.Date(names(plottableR)), r=plottableR) %>%
+            slice(1:(n()-1))
+        
     })
     
     output$areaSelector <- renderUI({
@@ -119,7 +126,7 @@ server <- function(input, output, session) {
     })
     
     output$areaCases <- renderPlot({
-        ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess") + xlab("Date") + ylab("New Cases")
+        ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("New Cases")
     })
     
     output$areaR <- renderPlot({
@@ -127,11 +134,9 @@ server <- function(input, output, session) {
         tryCatch({
             
             r <- effectiveR()
-            plottableR <- r[0:(length(r)-1)]
             
-            df <- data.frame(date=as.Date(names(plottableR)), r=plottableR)
+            ggplot(r) + aes(x=date, y=r) + geom_line() + geom_hline(yintercept = 1, col="red") + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("Effective R")
             
-            ggplot(df) + aes(x=date, y=r) + geom_line() + geom_hline(yintercept = 1, col="red") + xlab("Date") + ylab("Effective R")
             
         }, error=function(err) {
             print(err)
@@ -145,8 +150,13 @@ server <- function(input, output, session) {
             
             e <- effectiveR()
             
-            latestR <- e[length(e)-1]
             
+            l <- loess(r~as.numeric(date), e, span = 0.5)
+            p <- predict(l)
+            
+            
+            latestR <- last(p)
+
             col <- "black"
             if(latestR > 1) {
                 col <- "red"
@@ -159,7 +169,7 @@ server <- function(input, output, session) {
             codedR <- paste("<font color='", col, "'>", latestRoundedR, "</font>")
             
             if(length(e > 2)) {
-                penultimateR <- e[length(e)-2]
+                penultimateR <- p[length(p)-2]
                 if(penultimateR < latestR) {
                     paste(codedR, "<i class='fas fa-arrow-up'></i>")
                 } else if(penultimateR > latestR) {
