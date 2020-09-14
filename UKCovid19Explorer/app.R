@@ -135,7 +135,7 @@ server <- function(input, output, session) {
         minPlotDate <- min(l$date)
         maxPlotDate <- max(l$date)
         
-        ggplot(l) + aes(x=date, y=cases) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_line() + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("New Cases")
+        ggplot(l) + aes(x=date, y=cases) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_col() + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("New Cases")
     })
     
     output$areaR <- renderPlot({
