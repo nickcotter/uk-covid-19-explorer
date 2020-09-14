@@ -95,20 +95,24 @@ server <- function(input, output, session) {
     localData <- reactive({
         geoCodedData %>%
             filter(type == input$areaType) %>%
-            filter(area==input$areaName)
+            filter(area==input$areaName) %>%
+            filter(cases > 0)
     })
         
     effectiveR <- reactive({
         
-        c <- localData() %>%
-            mutate(avg=rollmean(cases, 7, fill=NA, align="right")) %>%
-            filter(!is.na(avg))
+        d <- localData()
         
-        #l <- loess(cases~as.numeric(date), localData())
-        #p <- predict(l)
+        l <- loess(cases~as.numeric(date), d, span=0.5)
+        p <- predict(l)
         
-        epid <- structure(c$avg, names=as.character(c$date))
-        est <- estimate.R(epid=epid, begin=min(c$date), end=max(c$date), GT=meanGenerationTime, methods=c("TD"), nsim=1)
+        epid <- structure(p, names=as.character(d$date))
+        
+        epid <- epid[epid>0]
+        startDate <- min(names(epid))
+        maxDate <- max(names(epid))
+        
+        est <- estimate.R(epid=epid, begin=startDate, end=maxDate, GT=meanGenerationTime, methods=c("TD"), nsim=1)
         r <- est$estimates$TD$R
         plottableR <- r[0:(length(r)-1)]
         data.frame(date=as.Date(names(plottableR)), r=plottableR) %>%
@@ -126,16 +130,25 @@ server <- function(input, output, session) {
     })
     
     output$areaCases <- renderPlot({
-        ggplot(localData()) + aes(x=date, y=cases) + ylim(0, NA) + geom_line() + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("New Cases")
+        
+        l <- localData()
+        minPlotDate <- min(l$date)
+        maxPlotDate <- max(l$date)
+        
+        ggplot(l) + aes(x=date, y=cases) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_line() + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("New Cases")
     })
     
     output$areaR <- renderPlot({
+        
+        l <- localData()
+        minPlotDate <- min(l$date)
+        maxPlotDate <- max(l$date)
         
         tryCatch({
             
             r <- effectiveR()
             
-            ggplot(r) + aes(x=date, y=r) + geom_line() + geom_hline(yintercept = 1, col="red") + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("Effective R")
+            ggplot(r) + aes(x=date, y=r) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_line() + geom_hline(yintercept = 1, col="red") + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("Effective R")
             
             
         }, error=function(err) {
