@@ -135,7 +135,7 @@ server <- function(input, output, session) {
         minPlotDate <- min(l$date)
         maxPlotDate <- max(l$date)
         
-        ggplot(l) + aes(x=date, y=cases) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_col() + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("New Cases")
+        ggplot(l) + aes(x=date, y=cases) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_col() + geom_smooth(method = "loess", span=0.5, se=FALSE) + xlab("Date") + ylab("New Cases")
     })
     
     output$areaR <- renderPlot({
@@ -148,7 +148,7 @@ server <- function(input, output, session) {
             
             r <- effectiveR()
             
-            ggplot(r) + aes(x=date, y=r) + ylim(0, NA) + xlim(minPlotDate, maxPlotDate) + geom_line() + geom_hline(yintercept = 1, col="red") + geom_smooth(method = "loess", span=0.5) + xlab("Date") + ylab("Effective R")
+            ggplot(r) + aes(x=date, y=r) + xlim(minPlotDate, maxPlotDate) + geom_hline(yintercept = 1, col="red") + geom_smooth(method = "loess", span=0.5, se=FALSE) + xlab("Date") + ylab("Effective R")
             
             
         }, error=function(err) {
