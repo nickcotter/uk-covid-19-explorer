@@ -20,6 +20,7 @@ preProcessedData <- raw_data %>%
     mutate(date = ymd(`Specimen date`)) %>%
     mutate(cases = `Daily lab-confirmed cases`) %>%
     filter(date < today()) %>%
+    filter(cases > 0) %>%
     arrange(date) %>%
     dplyr::select(area, type, code, date, cases)
 rm(raw_data)
@@ -78,7 +79,11 @@ ui <- dashboardPage(
                              plotOutput("areaR") %>% withSpinner(color="#0dc5c1", type=4)),
         
             
-            tabPanel("7 Day Map", leafletOutput("map", height = 800) %>% withSpinner(color="#0dc5c1", type=4))
+            tabPanel("7 Day Map", leafletOutput("map", height = 800) %>% withSpinner(color="#0dc5c1", type=4)),
+            
+            tabPanel("Highest/Lowest R", value="highestLowestR",
+                     plotOutput("highestR") %>% withSpinner(color="#0dc5c1", type=4),
+                     plotOutput("lowestR") %>% withSpinner(color="#0dc5c1", type=4))
         ),
         
     )
@@ -95,14 +100,16 @@ server <- function(input, output, session) {
     localData <- reactive({
         geoCodedData %>%
             filter(type == input$areaType) %>%
-            filter(area==input$areaName) %>%
-            filter(cases > 0)
+            filter(area==input$areaName)
+    })
+    
+    dataForAreaType <- reactive({
+        geoCodedData %>%
+            filter(type == "utla")
     })
         
-    effectiveR <- reactive({
-        
-        d <- localData()
-        
+    
+    calculateR <- function(d) {
         l <- loess(cases~as.numeric(date), d, span=0.5)
         p <- predict(l)
         
@@ -117,6 +124,53 @@ server <- function(input, output, session) {
         plottableR <- r[0:(length(r)-1)]
         data.frame(date=as.Date(names(plottableR)), r=plottableR) %>%
             slice(1:(n()-1))
+    }
+    
+    effectiveR <- reactive({
+        
+        d <- localData()
+        
+        calculateR(d)
+        
+    })
+    
+    latestRByArea <- reactive({
+        
+        d <- dataForAreaType()
+        
+        rByArea <- data.frame(area <- character(), latestR <- numeric())
+        
+        areaNames <- unique(d$area)
+        
+        for(areaName in areaNames) {
+            
+            latestR <- 0
+            
+            areaData <- d %>%
+                filter(area == areaName)
+    
+            
+            tryCatch({
+                
+                r <- calculateR(areaData)
+                    
+          
+                l <- loess(r~as.numeric(date), r, span = 0.5)
+                p <- predict(l)
+                
+                latestR <- last(p)
+                
+            }, error=function(err) {
+                print(err)
+            })
+                
+            
+            row <- data.frame(areaName, latestR)
+            
+            rByArea <- rbind(rByArea, row)
+        }
+        
+        rByArea
         
     })
     
@@ -215,6 +269,23 @@ server <- function(input, output, session) {
             addTiles() %>%
             addCircleMarkers(lng = ~longitude, lat = ~latitude, radius =  ~100*last7Days/largest, popup = ~paste(area, ":", last7Days), clusterOptions = markerClusterOptions(maxClusterRadius=100)) %>%
             setView(lng = -2.89479, lat = 54.093409, zoom = 6)
+    })
+    
+    output$highestR <- renderPlot({
+        
+        l <- latestRByArea() %>%
+            top_n(5, wt = latestR)
+        
+        ggplot(l) + aes(reorder(areaName, latestR, sum), latestR) + geom_col() + geom_hline(yintercept = 1, col="red") + xlab("Area") + ylab("R")
+    })
+    
+    output$lowestR <- renderPlot({
+        
+        l <- latestRByArea() %>%
+            filter(latestR > 0) %>%
+            top_n(-5, wt = latestR)
+        
+        ggplot(l) + aes(reorder(areaName, -latestR, sum), latestR) + geom_col() + geom_hline(yintercept = 1, col="red") + xlab("Area") + ylab("R")
     })
 }
 
